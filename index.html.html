@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Agendamento de Ultrassom</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS for Excel/CSV Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+    <!-- AUTHENTICATION / LOCKSCREEN MODAL -->
+    <div id="auth-modal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 border border-slate-100 fade-in">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner">
+                    <i class="fa-solid fa-hospital-user"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-900">Acesso Restrito</h2>
+                <p class="text-sm text-slate-500 mt-1">Identifique-se para gerenciar o agendamento de ultrassom (15/10/2026)</p>
+            </div>
+            <form id="auth-form" onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">CPF do usuário autorizado</label>
+                    <input type="text" id="operator-cpf" required inputmode="numeric" autocomplete="username" maxlength="14" placeholder="Digite o CPF cadastrado" oninput="formatLoginCPF(this)" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition text-sm">
+                    <p class="text-xs text-slate-500 mt-2">O nome e o perfil serão identificados automaticamente pelo cadastro autorizado.</p>
+                </div>
+                <p id="auth-error" class="hidden text-sm text-rose-600" role="alert"></p>
+                <button type="submit" class="w-full py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl shadow-lg shadow-teal-600/20 transition duration-200 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-right-to-bracket"></i> Acessar Sistema
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN APPLICATION WRAPPER -->
+    <div id="app-wrapper" class="flex-1 flex flex-col hidden">
+        
+        <!-- HEADER -->
+        <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-teal-600 text-white rounded-xl flex items-center justify-center text-xl shadow-md shadow-teal-600/20">
+                        <i class="fa-solid fa-notes-medical"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg sm:text-xl font-bold text-slate-900 leading-tight">Sistema de Agendamento de Ultrassom</h1>
+                        <p class="text-xs sm:text-sm text-teal-700 font-medium flex items-center gap-1.5 mt-0.5">
+                            <i class="fa-regular fa-calendar"></i> Data dos atendimentos: 15 de outubro de 2026
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="hidden md:flex flex-col text-right">
+                        <span id="logged-operator-display" class="text-sm font-semibold text-slate-800">Operador</span>
+                        <span id="logged-role-display" class="text-xs text-slate-500">Função</span>
+                    </div>
+                    <button onclick="logout()" title="Sair do sistema" class="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition">
+                        <i class="fa-solid fa-power-off text-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- NAVIGATION BAR -->
+        <nav class="bg-slate-900 text-slate-300 shadow-md">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 sm:space-x-4 overflow-x-auto">
+                <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn px-4 py-3.5 text-sm font-medium border-b-2 border-teal-500 text-white flex items-center gap-2 whitespace-nowrap transition">
+                    <i class="fa-solid fa-chart-pie"></i> Dashboard
+                </button>
+                <button onclick="switchTab('new-appointment')" id="nav-new-appointment" class="nav-btn px-4 py-3.5 text-sm font-medium border-b-2 border-transparent hover:text-white flex items-center gap-2 whitespace-nowrap transition">
+                    <i class="fa-solid fa-user-plus"></i> Novo Agendamento
+                </button>
+                <button onclick="switchTab('patients-list')" id="nav-patients-list" class="nav-btn px-4 py-3.5 text-sm font-medium border-b-2 border-transparent hover:text-white flex items-center gap-2 whitespace-nowrap transition">
+                    <i class="fa-solid fa-users-medical"></i> Pacientes Agendadas <span id="badge-count" class="ml-1.5 px-2 py-0.5 text-xs bg-teal-500 text-white rounded-full font-bold">0</span>
+                </button>
+                <button data-role="Gestor" onclick="switchTab('reports')" id="nav-reports" class="nav-btn px-4 py-3.5 text-sm font-medium border-b-2 border-transparent hover:text-white flex items-center gap-2 whitespace-nowrap transition">
+                    <i class="fa-solid fa-file-excel"></i> Relatórios & Exportação
+                </button>
+                <button data-role="Gestor" onclick="switchTab('audit')" id="nav-audit" class="nav-btn px-4 py-3.5 text-sm font-medium border-b-2 border-transparent hover:text-white flex items-center gap-2 whitespace-nowrap transition">
+                    <i class="fa-solid fa-shield-halved"></i> Auditoria & LGPD
+                </button>
+            </div>
+        </nav>
+
+        <!-- MAIN CONTENT AREA -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+
+            <!-- 1. DASHBOARD VIEW -->
+            <section id="view-dashboard" class="space-y-8 fade-in">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200/80 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total de vagas disponíveis</p>
+                            <h3 id="stat-available" class="text-3xl font-bold text-blue-600 mt-1">40</h3>
+                        </div>
+                        <div class="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-calendar-plus"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200/80 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Quantidade preenchida</p>
+                            <h3 id="stat-filled" class="text-3xl font-bold text-teal-600 mt-1">0</h3>
+                        </div>
+                        <div class="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-user-check"></i>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. NEW APPOINTMENT VIEW (SINGLE-PAGE FORM) -->
+            <section id="view-new-appointment" class="space-y-6 hidden fade-in max-w-3xl mx-auto">
+                <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 overflow-hidden">
+                    <div class="bg-slate-900 px-6 py-4 text-white">
+                        <h3 class="font-bold text-lg">Cadastro de Nova Paciente</h3>
+                        <p class="text-xs text-slate-400">Mutirão de Ultrassom — 15/10/2026</p>
+                    </div>
+                    <form id="appointment-form" onsubmit="handleAppointmentSubmit(event)" class="p-6 sm:p-8 space-y-5">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Nome Completo da Paciente *</label>
+                            <input type="text" id="patient-name" required placeholder="Digite o nome completo da paciente" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none text-sm">
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Tipo de Documento *</label>
+                                <select id="doc-type" required onchange="updateDocMask()" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none text-sm bg-white">
+                                    <option value="Cartão SUS">Cartão SUS (CNS)</option>
+                                    <option value="CPF">CPF</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Número do Documento *</label>
+                                <input type="text" id="doc-number" required placeholder="Digite o número do documento" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none text-sm">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Nome do ACS (Agente Comunitário de Saúde) *</label>
+                            <input type="text" id="acs-name" list="acs-options" required autocomplete="off" placeholder="Digite para pesquisar e selecionar o ACS" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-500 outline-none text-sm">
+                            <datalist id="acs-options"></datalist>
+                            <p class="text-xs text-slate-500 mt-1">A lista será preenchida quando os nomes dos ACS forem fornecidos.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Turno de Atendimento *</label>
+                            <div class="grid grid-cols-2 gap-4">
+                                <label class="border rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:border-teal-500 transition has-[:checked]:border-teal-600 has-[:checked]:bg-teal-50/50">
+                                    <input type="radio" name="shift-selection" value="Manhã" required class="text-teal-600 focus:ring-teal-500">
+                                    <span class="text-sm font-bold text-slate-900">Manhã <span id="form-morning-stock" class="block text-xs text-slate-500 font-normal">20 vagas disponíveis</span></span>
+                                </label>
+                                <label class="border rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:border-teal-500 transition has-[:checked]:border-teal-600 has-[:checked]:bg-teal-50/50">
+                                    <input type="radio" name="shift-selection" value="Tarde" required class="text-teal-600 focus:ring-teal-500">
+                                    <span class="text-sm font-bold text-slate-900">Tarde <span id="form-afternoon-stock" class="block text-xs text-slate-500 font-normal">20 vagas disponíveis</span></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="flex justify-end pt-4 border-t border-slate-100">
+                            <button type="submit" class="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl text-sm transition flex items-center gap-2 shadow-md shadow-teal-600/20">
+                                <i class="fa-solid fa-check"></i> Confirmar Agendamento
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- 3. PATIENTS LIST VIEW -->
+            <section id="view-patients-list" class="space-y-6 hidden fade-in">
+                <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-6 flex flex-col gap-5">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900">Pacientes Agendadas</h3>
+                            <p class="text-xs text-slate-500">Listagem oficial de atendimento para 15/10/2026</p>
+                        </div>
+                        <div class="flex items-center gap-3 w-full md:w-auto">
+                            <button onclick="exportToExcel()" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-2">
+                                <i class="fa-solid fa-file-excel"></i> Exportar Excel
+                            </button>
+                            <button onclick="exportToPDF()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-2">
+                                <i class="fa-solid fa-file-pdf"></i> Imprimir / Relatório
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filters and Search -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2">
+                        <div class="lg:col-span-2 relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-slate-400 text-sm"></i>
+                            <input type="text" id="search-input" oninput="renderPatientsTable()" placeholder="Pesquisar por paciente, documento, enfermeira ou ACS..." class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <select id="filter-shift" onchange="renderPatientsTable()" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm outline-none bg-white focus:ring-2 focus:ring-teal-500">
+                                <option value="">Todos os Turnos</option>
+                                <option value="Manhã">Turno da Manhã</option>
+                                <option value="Tarde">Turno da Tarde</option>
+                            </select>
+                        </div>
+                        <div>
+                            <select id="filter-status" onchange="renderPatientsTable()" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm outline-none bg-white focus:ring-2 focus:ring-teal-500">
+                                <option value="">Todos os Status</option>
+                                <option value="Confirmado">Confirmado</option>
+                                <option value="Cancelado">Cancelado</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button onclick="resetFilters()" class="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-rotate-right"></i> Limpar Filtros
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="overflow-x-auto rounded-xl border border-slate-100">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-slate-900 text-white text-xs uppercase tracking-wider">
+                                    <th class="p-3.5 pl-4">Nº</th>
+                                    <th class="p-3.5">Paciente</th>
+                                    <th class="p-3.5">Documento</th>
+                                    <th class="p-3.5">Enfermeira</th>
+                                    <th class="p-3.5">ACS</th>
+                                    <th class="p-3.5">Turno</th>
+                                    <th class="p-3.5">Data Exame</th>
+                                    <th class="p-3.5">Status</th>
+                                    <th class="p-3.5 pr-4 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="patients-table-body" class="divide-y divide-slate-100 bg-white">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. REPORTS VIEW -->
+            <section id="view-reports" class="space-y-6 hidden fade-in">
+                <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-6 space-y-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Relatórios Estatísticos e Vinculações</h3>
+                        <p class="text-xs text-slate-500">Resumo consolidado para gestão da saúde e agentes comunitários</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3"><i class="fa-solid fa-sun text-amber-500"></i> Resumo Turno da Manhã</h4>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span>Vagas Totais:</span> <strong>20</strong></div>
+                                <div class="flex justify-between"><span>Ocupadas:</span> <strong id="rep-morning-filled" class="text-teal-600">0</strong></div>
+                                <div class="flex justify-between"><span>Disponíveis:</span> <strong id="rep-morning-left" class="text-blue-600">20</strong></div>
+                            </div>
+                        </div>
+                        <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3"><i class="fa-solid fa-cloud-sun text-orange-500"></i> Resumo Turno da Tarde</h4>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span>Vagas Totais:</span> <strong>20</strong></div>
+                                <div class="flex justify-between"><span>Ocupadas:</span> <strong id="rep-afternoon-filled" class="text-teal-600">0</strong></div>
+                                <div class="flex justify-between"><span>Disponíveis:</span> <strong id="rep-afternoon-left" class="text-blue-600">20</strong></div>
+                            </div>
+                        </div>
+                        <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                            <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3"><i class="fa-solid fa-chart-pie text-indigo-500"></i> Status Geral Mutirão</h4>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span>Total Mutirão:</span> <strong>40 Vagas</strong></div>
+                                <div class="flex justify-between"><span>Confirmados:</span> <strong id="rep-total-confirmed" class="text-teal-600">0</strong></div>
+                                <div class="flex justify-between"><span>Livres:</span> <strong id="rep-total-free" class="text-blue-600">40</strong></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Breakdown by Nurse / ACS -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                        <div>
+                            <h4 class="text-sm font-bold text-slate-800 mb-3"><i class="fa-solid fa-user-doctor text-teal-600"></i> Agendamentos por Enfermeira</h4>
+                            <div id="nurse-breakdown-list" class="space-y-2">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-slate-800 mb-3"><i class="fa-solid fa-users text-teal-600"></i> Agendamentos por ACS</h4>
+                            <div id="acs-breakdown-list" class="space-y-2">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 5. AUDIT & LGPD VIEW -->
+            <section id="view-audit" class="space-y-6 hidden fade-in">
+                <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-6 space-y-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Trilha de Auditoria & Conformidade LGPD</h3>
+                        <p class="text-xs text-slate-500">Registro imutável de todas as ações, modificações e acessos a dados pessoais</p>
+                    </div>
+                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-xs text-amber-800">
+                        <i class="fa-solid fa-shield-halved text-amber-600 text-lg mt-0.5"></i>
+                        <div>
+                            <strong>Diretriz LGPD (Lei nº 13.709/2018):</strong> Os documentos pessoais (CPF e Cartão SUS) são mascarados na listagem pública para proteger a privacidade das pacientes. O acesso é restrito à equipe autorizada.
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto rounded-xl border border-slate-100">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-900 text-white uppercase tracking-wider">
+                                    <th class="p-3 pl-4">Data / Hora</th>
+                                    <th class="p-3">Operador</th>
+                                    <th class="p-3">Ação Realizada</th>
+                                    <th class="p-3 pr-4">Detalhes</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-table-body" class="divide-y divide-slate-100 bg-white">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- EDIT APPOINTMENT MODAL -->
+        <div id="edit-modal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm hidden items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-100 fade-in">
+                <div class="flex justify-between items-center mb-4 border-b pb-3">
+                    <h3 class="text-lg font-bold text-slate-900">Editar Agendamento</h3>
+                    <button onclick="closeEditModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                </div>
+                <form id="edit-form" onsubmit="handleEditSubmit(event)" class="space-y-4">
+                    <input type="hidden" id="edit-id">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Nome Completo da Paciente</label>
+                        <input type="text" id="edit-patient-name" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-teal-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Tipo Documento</label>
+                            <select id="edit-doc-type" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+                                <option value="Cartão SUS">Cartão SUS</option>
+                                <option value="CPF">CPF</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Número do Documento</label>
+                            <input type="text" id="edit-doc-number" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm outline-none">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Enfermeira</label>
+                            <input type="text" id="edit-nurse" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">ACS</label>
+                            <input type="text" id="edit-acs" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Turno</label>
+                        <select id="edit-shift" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+                            <option value="Manhã">Turno da Manhã</option>
+                            <option value="Tarde">Turno da Tarde</option>
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">A alteração de turno valida a capacidade estrita de 20 vagas.</p>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-3 border-t">
+                        <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-xl">Cancelar</button>
+                        <button type="submit" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-xl">Salvar Alterações</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- CUSTOM NOTIFICATION MODAL -->
+        <div id="alert-modal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm hidden items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 border border-slate-100 fade-in">
+                <div id="alert-icon" class="w-14 h-14 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto text-2xl">
+                    <i class="fa-solid fa-check"></i>
+                </div>
+                <h3 id="alert-title" class="text-lg font-bold text-slate-900">Sucesso</h3>
+                <p id="alert-message" class="text-xs text-slate-600">Operação realizada com sucesso.</p>
+                <button onclick="closeAlertModal()" class="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl text-sm transition">Entendido</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- APPLICATION SCRIPT -->
+    <script>
+        // State Management
+        let currentUser = null;
+        let appointments = [];
+        let auditLogs = [];
+
+        // IMPORTANTE: este arquivo HTML funciona localmente no navegador. O controle abaixo
+        // restringe a interface, mas autenticação e autorização realmente seguras exigem backend.
+        // Usuários autorizados. Os CPFs são comparados somente pelos dígitos.
+        // Perfis com "Gestor" têm acesso às abas administrativas.
+        const AUTHORIZED_USERS = [
+            { cpf: "05004874301", name: "Josane Gomes da Silva", role: "Enfermeira/Gestor", active: true },
+            { cpf: "07057495331", name: "Maria Gabriela da Silva", role: "Enfermeira/Gestor", active: true },
+            { cpf: "05636653352", name: "JOSIELDO DE ARAUJO SANTOS", role: "Gestor", active: true },
+            { cpf: "63204860310", name: "Marlucia da Silva Marques", role: "Enfermeira", active: true },
+            { cpf: "25304878809", name: "ADAILDES DA SILVA COSTA", role: "Enfermeira", active: true },
+            { cpf: "83124250397", name: "ALLANA CARLOS FONTINELE", role: "Enfermeira", active: true },
+            { cpf: "05498230346", name: "ANA DAVIA REBELO LAGO", role: "Enfermeira", active: true },
+            { cpf: "03974131302", name: "ANALICE DA SILVA GOMES", role: "Enfermeira", active: true },
+            { cpf: "37472356387", name: "CONCEIÇÃO DE MARIA PORTELA CARVALHO", role: "Enfermeira", active: true },
+            { cpf: "02455962326", name: "ELISETE DE SOUSA NUNES", role: "Enfermeira", active: true },
+            { cpf: "02968203347", name: "FLAVIA LIMA PEREIRA", role: "Enfermeira", active: true },
+            { cpf: "07119342312", name: "KARYNNE DOS SANTOS LIRA", role: "Enfermeira", active: true },
+            { cpf: "04624780337", name: "GEOVANNA CRISTINA SILVA MOURA", role: "Enfermeira", active: true },
+            { cpf: "98619942387", name: "LEILIANE DE PAIVA DUTRA AGUIAR", role: "Enfermeira", active: true },
+            { cpf: "24098205300", name: "LENY MARIA REBELO", role: "Enfermeira", active: true },
+            { cpf: "38157122899", name: "LUANA RODRIGUES DA SILVA", role: "Enfermeira", active: true },
+            { cpf: "07268381360", name: "LUDIMILHA BASTOS DE SOUSA", role: "Enfermeira", active: true },
+            { cpf: "86670549334", name: "MONICA DOLORES SOARES LIMA", role: "Enfermeira", active: true },
+            { cpf: "75327830306", name: "VALDELIA MARIA PORTELA DE CARVALHO", role: "Enfermeira", active: true },
+            { cpf: "37261002372", name: "WITALINA CONCEIÇÃO LEAL REGO", role: "Enfermeira", active: true }
+        ];
+         // Lista oficial de ACS para pesquisa no formulário; não são usuários do sistema.
+        const ACS_NAMES = [
+                "ADAO DO CARMO SOUSA",
+                "ADRIANA DO NASCIMENTO RABELO",
+                "ANA CLAUDIA FERREIRA SILVA",
+                "ANA PAULA DOS SANTOS ARAUJO",
+                "ANDERSON SUDARIO DE SOUSA",
+                "ANTONIA LIMA COSTA",
+                "ANTONIA MARIA MENDES FEITOSA",
+                "ANTONIA OLIVEIRA SANTOS",
+                "ANTONIA ROSA DA SILVA",
+                "ANTONIA SILVA DOS REIS PINHEIRO",
+                "ANTONIO BORGES DA SILVA NETO",
+                "ANTONIO DA SILVA CASTRO",
+                "ANTONIO FERREIRA MELO",
+                "ANTONIO FRANCISCO ALVES DE SOUSA",
+                "ANTONIO FRANCISCO DOS SANTOS LIRA",
+                "ANTONIO FRANCISCO SOUSA SANTOS",
+                "ANTONIO HERNANDES DE ARAUJO",
+                "ANTONIO JOSE DE ASSIS PEREIRA",
+                "ANTONIO JOSE LOPES DOS SANTOS",
+                "ANTONIO MIGUEL DE SOUSA",
+                "ATILA CRIS FERREIRA",
+                "CICERO ELILDO GOMES DE OLIVEIRA",
+                "DOMINGAS DA SILVA RODRIGUES",
+                "DOMINGAS PEREIRA DE SOUSA",
+                "DOMINGOS LOPES DE ARAUJO",
+                "DOMINGOS PEREIRA LIMA",
+                "EDILEUSA MARIA DA CRUZ",
+                "EDISANDRA MARIA VAZ SILVA",
+                "ELIANA SILVA LIMA",
+                "ESTEPHANIA SANTANA DOS REIS",
+                "FABIANA MARIA DE ARAUJO PAZ",
+                "FABIANO BARBOSA DA SILVA",
+                "FLAVIA DAYANA SILVA RABELO",
+                "FRANCINEIDE SILVA",
+                "FRANCISCA ALVES SILVA",
+                "FRANCISCO DAS CHAGAS VIEIRA LOPES",
+                "FRANCISCO DE ASSIS SANTIAGO CUNHA",
+                "FRANCISCO DURVAL DO NASCIMENTO",
+                "FREDERICO GOMES REBELO NETO",
+                "GERLANE PESSOA MOREIRA RIBEIRO",
+                "GRAZIELLE LOPES COSTA",
+                "JAIR LIMA VIANA",
+                "JANAINA RABELO SILVA",
+                "JEOVANE AZEVEDO PAIVA",
+                "JOANA DARC SILVA DIAS",
+                "JOAO DE DEUS DE SOUSA RAMOS",
+                "JOSE ANTONIO SILVA",
+                "JOSE PEREIRA DE MORAES",
+                "JOSE SANTANA ALVES DE SOUSA",
+                "JOSIANE DA SILVA VIEIRA",
+                "JOVENAL BORGES DA SILVA",
+                "LAURA ARAUJO PEREIRA",
+                "LEONICE CARDOSO DO NASCIMENTO",
+                "MARCOS ANTONIO DA SILVA SOUSA MEDEIROS",
+                "MARIA DA CONCEICAO DO NASCIMENTO OLIVEIRA",
+                "MARIA DE DEUS GOMES DA SILVA",
+                "MARIA DE FATIMA COSTA SILVA",
+                "MARIA DO NASCIMENTO PEREIRA DE CARVALHO",
+                "MARIA DO SOCORRO CARLOS CARDOSO",
+                "MARIA DOS MILAGRES COSTA",
+                "MARIA DOS MILAGRES SOUSA OLIVEIRA",
+                "MARIA DOS SANTOS CASTRO",
+                "MARIA ERINALDA ARAUJO GONCALVES",
+                "MARIA JOSE BARBOSA",
+                "MARIA NAZI DE SOUSA SANTOS",
+                "MARIA PATRICIA DA COSTA SANTOS",
+                "MARIA RAILA DE SOUSA SILVA",
+                "MARILENE DA CONCEICAO SANTOS",
+                "MARINALVA SANTOS GONCALVES",
+                "MARINETE CARDOSO DA SILVA",
+                "MATHEUS COSTA MELO",
+                "MICAELY FEITOSA DA SILVA",
+                "MISSILENE DA SILVA PORTELA",
+                "NEILA DE SOUSA SILVA",
+                "OSEAS CHAVES VIEIRA",
+                "OSVALDO MELO DA CRUZ",
+                "PAULO DE LIMA SOARES",
+                "PAULO DE OLIVEIRA GOMES",
+                "PAULO DE TARSO OLIVEIRA",
+                "RAFAEL OLIVEIRA DO NASCIMENTO",
+                "RAIMUNDO CORREIA FILHO",
+                "RAIMUNDO NONATO FERNANDES CALACA",
+                "RAIMUNDO OLIVEIRA SANTOS",
+                "ROMERIO OLIVEIRA RIBEIRO",
+                "ROSA MARIA DA SILVA",
+                "SAMARA BRITO DA SILVA",
+                "SANDRA REGINA DE CARVALHO ROSA",
+                "SEBASTIAO ALVES DE SALES",
+                "SILVESTRE TORRES DE MORAIS",
+                "TIAGO SANTOS DE SOUZA"
+        ];
+
+        // Capacity Limits
+        const MAX_PER_SHIFT = 20;
+        const TOTAL_CAPACITY = 40;
+        const EXAM_DATE = "15/10/2026";
+
+        // Initialization on Load
+        window.onload = function() {
+            loadFromStorage();
+            populateACSOptions();
+            checkAuth();
+        };
+
+        // Authentication & Session
+        function onlyDigits(value) {
+            return String(value || '').replace(/\\D/g, '');
+        }
+
+        function hasManagerAccess(user = currentUser) {
+            return !!user && String(user.role || '').split('/').map(role => role.trim()).includes('Gestor');
+        }
+
+        function isValidRole(role) {
+            return ['Enfermeiro', 'Enfermeira', 'Gestor', 'Enfermeiro/Gestor', 'Enfermeira/Gestor'].includes(role);
+        }
+
+        function formatLoginCPF(input) {
+            const digits = onlyDigits(input.value).slice(0, 11);
+            input.value = digits
+                .replace(/(\\d{3})(\\d)/, '$1.$2')
+                .replace(/(\\d{3})(\\d)/, '$1.$2')
+                .replace(/(\\d{3})(\\d{1,2})$/, '$1-$2');
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const cpf = onlyDigits(document.getElementById('operator-cpf').value);
+            const error = document.getElementById('auth-error');
+            const user = AUTHORIZED_USERS.find(u => onlyDigits(u.cpf) === cpf && u.active === true);
+
+            if (AUTHORIZED_USERS.length === 0) {
+                error.textContent = 'A lista de usuários autorizados ainda não foi configurada. Inclua os CPFs, nomes e perfis oficiais no cadastro do sistema.';
+                error.classList.remove('hidden');
+                return;
+            }
+            if (cpf.length !== 11 || !user || !isValidRole(user.role)) {
+                error.textContent = 'CPF não autorizado, inativo ou com cadastro inválido. Verifique os dados com o gestor do sistema.';
+                error.classList.remove('hidden');
+                return;
+            }
+
+            currentUser = { cpf, name: user.name, role: user.role };
+            sessionStorage.setItem('us_operator', JSON.stringify(currentUser));
+            error.classList.add('hidden');
+            document.getElementById('auth-modal').classList.add('hidden');
+            document.getElementById('app-wrapper').classList.remove('hidden');
+            document.getElementById('logged-operator-display').innerText = currentUser.name;
+            document.getElementById('logged-role-display').innerText = currentUser.role;
+            applyRolePermissions();
+            logAudit('LOGIN', `Usuário ${currentUser.name} (${currentUser.role}) acessou o sistema.`);
+            updateDashboard();
+        }
+
+        function applyRolePermissions() {
+            const isManager = hasManagerAccess(currentUser);
+            document.querySelectorAll('[data-role="Gestor"]').forEach(el => {
+                el.classList.toggle('hidden', !isManager);
+            });
+            if (!isManager && ['reports', 'audit'].includes(getCurrentTab())) {
+                switchTab('dashboard');
+            }
+        }
+
+        function getCurrentTab() {
+            const visible = [...document.querySelectorAll('section[id^="view-"]')].find(sec => !sec.classList.contains('hidden'));
+            return visible ? visible.id.replace('view-', '') : 'dashboard';
+        }
+
+        function checkAuth() {
+            const saved = sessionStorage.getItem('us_operator');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    const user = AUTHORIZED_USERS.find(u => onlyDigits(u.cpf) === onlyDigits(parsed.cpf) && u.active === true && u.name === parsed.name && u.role === parsed.role);
+                    if (user && isValidRole(user.role)) {
+                        currentUser = { cpf: onlyDigits(user.cpf), name: user.name, role: user.role };
+                        document.getElementById('auth-modal').classList.add('hidden');
+                        document.getElementById('app-wrapper').classList.remove('hidden');
+                        document.getElementById('logged-operator-display').innerText = currentUser.name;
+                        document.getElementById('logged-role-display').innerText = currentUser.role;
+                        applyRolePermissions();
+                        updateDashboard();
+                        return;
+                    }
+                } catch (err) {}
+                sessionStorage.removeItem('us_operator');
+            }
+            document.getElementById('auth-modal').classList.remove('hidden');
+        }
+
+        function logout() {
+            sessionStorage.removeItem('us_operator');
+            location.reload();
+        }
+
+        // Navigation Tabs
+        function switchTab(tabId) {
+            if (['reports', 'audit'].includes(tabId) && !hasManagerAccess(currentUser)) {
+                showAlert('Acesso restrito', 'Esta funcionalidade está disponível somente para o perfil Gestor.', 'error');
+                return;
+            }
+            document.querySelectorAll('section[id^="view-"]').forEach(sec => sec.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('border-teal-500', 'text-white');
+                btn.classList.add('border-transparent');
+            });
+
+            document.getElementById(`view-${tabId}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`nav-${tabId}`);
+            if(activeBtn) {
+                activeBtn.classList.add('border-teal-500', 'text-white');
+                activeBtn.classList.remove('border-transparent');
+            }
+
+            if(tabId === 'patients-list') renderPatientsTable();
+            if(tabId === 'reports') renderReports();
+            if(tabId === 'audit') renderAuditTable();
+            if(tabId === 'dashboard') updateDashboard();
+        }
+
+        function quickSelectShift(shift) {
+            switchTab('new-appointment');
+            const radios = document.querySelectorAll('input[name="shift-selection"]');
+            radios.forEach(r => {
+                if(r.value === shift) r.checked = true;
+            });
+            updateFormSummary();
+        }
+
+        // Storage Persistence
+        function saveToStorage() {
+            localStorage.setItem('us_appointments', JSON.stringify(appointments));
+            localStorage.setItem('us_audit', JSON.stringify(auditLogs));
+        }
+
+        function loadFromStorage() {
+            const dataApp = localStorage.getItem('us_appointments');
+            const dataAudit = localStorage.getItem('us_audit');
+            if(dataApp) appointments = JSON.parse(dataApp);
+            if(dataAudit) auditLogs = JSON.parse(dataAudit);
+        }
+
+        function logAudit(action, details) {
+            auditLogs.unshift({
+                date: new Date().toLocaleString('pt-BR'),
+                operator: currentUser ? currentUser.name : 'Sistema',
+                action: action,
+                details: details
+            });
+            saveToStorage();
+        }
+
+        // Form helpers
+        function populateACSOptions() {
+            const list = document.getElementById('acs-options');
+            if (!list) return;
+            list.innerHTML = '';
+            ACS_NAMES.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                list.appendChild(option);
+            });
+        }
+
+        function updateDocMask() {
+            const type = document.getElementById('doc-type').value;
+            const input = document.getElementById('doc-number');
+            input.placeholder = type === 'CPF' ? 'Ex: 123.456.789-00' : 'Digite o número do Cartão SUS/CNS';
+        }
+
+        // Handle Appointment Submission
+        function handleAppointmentSubmit(e) {
+            e.preventDefault();
+            if (!currentUser) {
+                showAlert('Sessão inválida', 'Entre novamente no sistema para continuar.', 'error');
+                logout();
+                return;
+            }
+            const nurse = currentUser.name;
+            const acs = document.getElementById('acs-name').value.trim();
+            const shiftEl = document.querySelector('input[name="shift-selection"]:checked');
+            if (!shiftEl) {
+                showAlert('Campo obrigatório', 'Selecione o turno de atendimento.', 'warning');
+                return;
+            }
+            const shift = shiftEl.value;
+            const patientName = document.getElementById('patient-name').value.trim();
+            const docType = document.getElementById('doc-type').value;
+            const docNumber = document.getElementById('doc-number').value.trim();
+
+            if(!patientName || !docNumber || !acs || !shift || !currentUser) {
+                showAlert('Erro', 'Preencha todos os campos obrigatórios antes de confirmar o agendamento.', 'error');
+                return;
+            }
+            if (ACS_NAMES.length && !ACS_NAMES.includes(acs)) {
+                showAlert('ACS não encontrado', 'Selecione um ACS cadastrado na lista.', 'error');
+                return;
+            }
+
+            // Rule 8 & 3: Prevent duplicate document in active events
+            const existing = appointments.find(a => a.docNumber === docNumber && a.status === 'Confirmado');
+            if(existing) {
+                showAlert('Documento Duplicado', `A paciente ${existing.patientName} já possui agendamento confirmado com este documento (${docNumber}).`, 'error');
+                return;
+            }
+
+            // Rule 3 & 4: Strict capacity check
+            const confirmedCount = appointments.filter(a => a.shift === shift && a.status === 'Confirmado').length;
+            if(confirmedCount >= MAX_PER_SHIFT) {
+                showAlert('Vagas Esgotadas', `Vagas esgotadas para este turno (${shift}). Limite de 20 atingido.`, 'error');
+                updateDashboard();
+                return;
+            }
+
+            const newApp = {
+                id: 'AG-' + Date.now().toString().slice(-5),
+                patientName,
+                docType,
+                docNumber,
+                nurse,
+                acs,
+                shift,
+                date: EXAM_DATE,
+                status: 'Confirmado',
+                createdAt: new Date().toLocaleString('pt-BR'),
+                history: [`Criado por ${currentUser.name} em ${new Date().toLocaleString('pt-BR')}`]
+            };
+
+            appointments.push(newApp);
+            saveToStorage();
+            logAudit('CADASTRO', `Agendamento ${newApp.id} criado para ${patientName} (${shift}).`);
+
+            showAlert('Sucesso', `Agendamento de ${patientName} confirmado com sucesso para o turno da ${shift}!`, 'success');
+            
+            // Reset Form
+            document.getElementById('appointment-form').reset();
+            updateDashboard();
+            switchTab('dashboard');
+        }
+
+        // Dashboard & Counters
+        function updateDashboard() {
+            const confirmed = appointments.filter(a => a.status === 'Confirmado');
+            const totalFilled = confirmed.length;
+            const totalAvailable = Math.max(0, TOTAL_CAPACITY - totalFilled);
+            document.getElementById('stat-filled').innerText = totalFilled;
+            document.getElementById('stat-available').innerText = totalAvailable;
+            const badge = document.getElementById('badge-count');
+            if (badge) badge.innerText = totalFilled;
+            const morning = confirmed.filter(a => a.shift === 'Manhã').length;
+            const afternoon = confirmed.filter(a => a.shift === 'Tarde').length;
+            const morningStock = document.getElementById('form-morning-stock');
+            const afternoonStock = document.getElementById('form-afternoon-stock');
+            if (morningStock) morningStock.innerText = `${Math.max(0, MAX_PER_SHIFT - morning)} vagas disponíveis`;
+            if (afternoonStock) afternoonStock.innerText = `${Math.max(0, MAX_PER_SHIFT - afternoon)} vagas disponíveis`;
+        }
+
+        // Render Patients Table with Filtering & Masking
+        function renderPatientsTable() {
+            const tbody = document.getElementById('patients-table-body');
+            tbody.innerHTML = '';
+
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const filterShift = document.getElementById('filter-shift').value;
+            const filterStatus = document.getElementById('filter-status').value;
+
+            const filtered = appointments.filter(a => {
+                const matchSearch = a.patientName.toLowerCase().includes(searchTerm) ||
+                                    a.docNumber.toLowerCase().includes(searchTerm) ||
+                                    a.nurse.toLowerCase().includes(searchTerm) ||
+                                    a.acs.toLowerCase().includes(searchTerm) ||
+                                    a.id.toLowerCase().includes(searchTerm);
+                const matchShift = filterShift ? a.shift === filterShift : true;
+                const matchStatus = filterStatus ? a.status === filterStatus : true;
+                return matchSearch && matchShift && matchStatus;
+            });
+
+            if(filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-slate-400">Nenhum agendamento encontrado.</td></tr>`;
+                return;
+            }
+
+            filtered.forEach((app, idx) => {
+                // Mask document for LGPD privacy: keep first 3 and last 2 chars
+                const docMasked = app.docNumber.length > 6 
+                    ? app.docNumber.substring(0, 3) + '.***.***-' + app.docNumber.slice(-2) 
+                    : '***.***-**';
+
+                const statusBadge = app.status === 'Confirmado' 
+                    ? '<span class="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-semibold rounded-lg text-xs border border-emerald-200">Confirmado</span>'
+                    : '<span class="px-2.5 py-1 bg-rose-50 text-rose-700 font-semibold rounded-lg text-xs border border-rose-200">Cancelado</span>';
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50/80 transition';
+                tr.innerHTML = `
+                    <td class="p-3.5 pl-4 font-mono text-xs text-slate-500">${app.id}</td>
+                    <td class="p-3.5 font-medium text-slate-900">${app.patientName}</td>
+                    <td class="p-3.5 font-mono text-xs text-slate-600"><span title="Documento Protegido (LGPD)">${docMasked}</span></td>
+                    <td class="p-3.5 text-slate-700">${app.nurse}</td>
+                    <td class="p-3.5 text-slate-700">${app.acs}</td>
+                    <td class="p-3.5"><span class="px-2.5 py-1 rounded-md text-xs font-semibold ${app.shift === 'Manhã' ? 'bg-amber-50 text-amber-700' : 'bg-orange-50 text-orange-700'}">${app.shift}</span></td>
+                    <td class="p-3.5 text-slate-600 text-xs">${app.date}</td>
+                    <td class="p-3.5">${statusBadge}</td>
+                    <td class="p-3.5 pr-4 text-right space-x-1">
+                        <button onclick="openEditModal('${app.id}')" title="Editar" class="p-1.5 bg-slate-100 hover:bg-teal-50 hover:text-teal-600 text-slate-600 rounded-lg transition"><i class="fa-solid fa-pen text-xs"></i></button>
+                        ${app.status === 'Confirmado' 
+                            ? `<button onclick="cancelAppointment('${app.id}')" title="Cancelar Agendamento" class="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-lg transition"><i class="fa-solid fa-ban text-xs"></i></button>`
+                            : `<button onclick="reactivateAppointment('${app.id}')" title="Reativar Agendamento" class="p-1.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 text-slate-600 rounded-lg transition"><i class="fa-solid fa-check text-xs"></i></button>`
+                        }
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function resetFilters() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('filter-shift').value = '';
+            document.getElementById('filter-status').value = '';
+            renderPatientsTable();
+        }
+
+        // Cancel / Release Slot
+        function cancelAppointment(id) {
+            const app = appointments.find(a => a.id === id);
+            if(!app) return;
+
+            app.status = 'Cancelado';
+            app.history.push(`Cancelado por ${currentUser.name} em ${new Date().toLocaleString('pt-BR')}`);
+            saveToStorage();
+            logAudit('CANCELAMENTO', `Agendamento ${id} (${app.patientName}) cancelado. Vaga devolvida ao turno ${app.shift}.`);
+            
+            updateDashboard();
+            renderPatientsTable();
+            showAlert('Agendamento Cancelado', `O agendamento foi cancelado e 1 vaga foi devolvida ao turno da ${app.shift}.`, 'success');
+        }
+
+        function reactivateAppointment(id) {
+            const app = appointments.find(a => a.id === id);
+            if(!app) return;
+
+            const confirmedCount = appointments.filter(a => a.shift === app.shift && a.status === 'Confirmado').length;
+            if(confirmedCount >= MAX_PER_SHIFT) {
+                showAlert('Turno Lotado', `Não é possível reativar: o turno da ${app.shift} já atingiu o limite de 20 vagas.`, 'error');
+                return;
+            }
+
+            app.status = 'Confirmado';
+            app.history.push(`Reativado por ${currentUser.name} em ${new Date().toLocaleString('pt-BR')}`);
+            saveToStorage();
+            logAudit('REATIVAÇÃO', `Agendamento ${id} reativado no turno ${app.shift}.`);
+
+            updateDashboard();
+            renderPatientsTable();
+            showAlert('Reativado', `O agendamento de ${app.patientName} foi reativado com sucesso.`, 'success');
+        }
+
+        // Edit Modal
+        function openEditModal(id) {
+            const app = appointments.find(a => a.id === id);
+            if(!app) return;
+
+            document.getElementById('edit-id').value = app.id;
+            document.getElementById('edit-patient-name').value = app.patientName;
+            document.getElementById('edit-doc-type').value = app.docType;
+            document.getElementById('edit-doc-number').value = app.docNumber;
+            document.getElementById('edit-nurse').value = app.nurse;
+            document.getElementById('edit-acs').value = app.acs;
+            document.getElementById('edit-shift').value = app.shift;
+
+            document.getElementById('edit-modal').classList.remove('hidden');
+            document.getElementById('edit-modal').classList.add('flex');
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+            document.getElementById('edit-modal').classList.remove('flex');
+        }
+
+        function handleEditSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('edit-id').value;
+            const app = appointments.find(a => a.id === id);
+            if(!app) return;
+
+            const newShift = document.getElementById('edit-shift').value;
+            
+            // If shift changed, validate capacity
+            if(newShift !== app.shift && app.status === 'Confirmado') {
+                const confirmedInNew = appointments.filter(a => a.shift === newShift && a.status === 'Confirmado').length;
+                if(confirmedInNew >= MAX_PER_SHIFT) {
+                    showAlert('Turno Lotado', `O turno de destino (${newShift}) está lotado (20/20). Impossível alterar.`, 'error');
+                    return;
+                }
+            }
+
+            app.patientName = document.getElementById('edit-patient-name').value.trim();
+            app.docType = document.getElementById('edit-doc-type').value;
+            app.docNumber = document.getElementById('edit-doc-number').value.trim();
+            app.nurse = document.getElementById('edit-nurse').value.trim();
+            app.acs = document.getElementById('edit-acs').value.trim();
+            app.shift = newShift;
+            app.history.push(`Editado por ${currentUser.name} em ${new Date().toLocaleString('pt-BR')}`);
+
+            saveToStorage();
+            logAudit('EDIÇÃO', `Agendamento ${id} atualizado.`);
+            closeEditModal();
+            updateDashboard();
+            renderPatientsTable();
+            showAlert('Sucesso', 'Dados do agendamento atualizados com sucesso.', 'success');
+        }
+
+        // Reports & Breakdown
+        function renderReports() {
+            if (!hasManagerAccess(currentUser)) return;
+            const confirmed = appointments.filter(a => a.status === 'Confirmado');
+            const morning = confirmed.filter(a => a.shift === 'Manhã').length;
+            const afternoon = confirmed.filter(a => a.shift === 'Tarde').length;
+            const total = morning + afternoon;
+
+            document.getElementById('rep-morning-filled').innerText = morning;
+            document.getElementById('rep-morning-left').innerText = MAX_PER_SHIFT - morning;
+            document.getElementById('rep-afternoon-filled').innerText = afternoon;
+            document.getElementById('rep-afternoon-left').innerText = MAX_PER_SHIFT - afternoon;
+            document.getElementById('rep-total-confirmed').innerText = total;
+            document.getElementById('rep-total-free').innerText = TOTAL_CAPACITY - total;
+
+            // Nurse Breakdown
+            const nurseMap = {};
+            const acsMap = {};
+            confirmed.forEach(a => {
+                nurseMap[a.nurse] = (nurseMap[a.nurse] || 0) + 1;
+                acsMap[a.acs] = (acsMap[a.acs] || 0) + 1;
+            });
+
+            const nurseList = document.getElementById('nurse-breakdown-list');
+            nurseList.innerHTML = Object.keys(nurseMap).length === 0 ? '<p class="text-xs text-slate-400">Nenhum registro.</p>' : '';
+            for(let [nurse, count] of Object.entries(nurseMap)) {
+                nurseList.innerHTML += `<div class="flex justify-between items-center p-2.5 bg-slate-50 rounded-lg text-xs"><span>${nurse}</span><strong class="px-2 py-0.5 bg-teal-100 text-teal-800 rounded font-semibold">${count} pacientes</strong></div>`;
+            }
+
+            const acsList = document.getElementById('acs-breakdown-list');
+            acsList.innerHTML = Object.keys(acsMap).length === 0 ? '<p class="text-xs text-slate-400">Nenhum registro.</p>' : '';
+            for(let [acs, count] of Object.entries(acsMap)) {
+                acsList.innerHTML += `<div class="flex justify-between items-center p-2.5 bg-slate-50 rounded-lg text-xs"><span>${acs}</span><strong class="px-2 py-0.5 bg-teal-100 text-teal-800 rounded font-semibold">${count} pacientes</strong></div>`;
+            }
+        }
+
+        // Audit Table Render
+        function renderAuditTable() {
+            if (!hasManagerAccess(currentUser)) return;
+            const tbody = document.getElementById('audit-table-body');
+            tbody.innerHTML = '';
+            if(auditLogs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Nenhum registro de auditoria.</td></tr>`;
+                return;
+            }
+            auditLogs.forEach(log => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 pl-4 font-mono text-slate-500">${log.date}</td>
+                        <td class="p-3 font-semibold text-slate-800">${log.operator}</td>
+                        <td class="p-3"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-bold">${log.action}</span></td>
+                        <td class="p-3 pr-4 text-slate-600">${log.details}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Export Excel (SheetJS)
+        function exportToExcel() {
+            if(appointments.length === 0) {
+                showAlert('Aviso', 'Não há dados para exportar.', 'warning');
+                return;
+            }
+            const dataToExport = appointments.map(a => ({
+                ID: a.id,
+                Paciente: a.patientName,
+                TipoDocumento: a.docType,
+                Documento: a.docNumber,
+                Enfermeira: a.nurse,
+                ACS: a.acs,
+                Turno: a.shift,
+                DataExame: a.date,
+                Status: a.status,
+                DataCadastro: a.createdAt
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Agendamentos Ultrassom");
+            XLSX.writeFile(workbook, "Agendamentos_Ultrassom_15102026.xlsx");
+            logAudit('EXPORTAÇÃO', 'Exportou a listagem de agendamentos para Excel.');
+        }
+
+        // Export PDF / Print Report
+        function exportToPDF() {
+            window.print();
+            logAudit('IMPRESSÃO', 'Gerou relatório de impressão.');
+        }
+
+        // Alert Modal Helper
+        function showAlert(title, message, type='success') {
+            document.getElementById('alert-title').innerText = title;
+            document.getElementById('alert-message').innerText = message;
+            const icon = document.getElementById('alert-icon');
+            
+            if(type === 'error' || type === 'warning') {
+                icon.className = 'w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto text-2xl';
+                icon.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+            } else {
+                icon.className = 'w-14 h-14 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto text-2xl';
+                icon.innerHTML = '<i class="fa-solid fa-check"></i>';
+            }
+
+            document.getElementById('alert-modal').classList.remove('hidden');
+            document.getElementById('alert-modal').classList.add('flex');
+        }
+
+        function closeAlertModal() {
+            document.getElementById('alert-modal').classList.add('hidden');
+            document.getElementById('alert-modal').classList.remove('flex');
+        }
+    </script>
+</body>
+</html>
